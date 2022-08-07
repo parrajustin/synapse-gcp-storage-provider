@@ -50,7 +50,7 @@ try:
 except ImportError:
     current_context = LoggingContext.current_context
 
-logger = logging.getLogger("synapse.gcp.storage_provider")
+logger = logging.getLogger(__name__)
 
 # Chunk size to use when reading from gcp connection in bytes
 READ_CHUNK_SIZE = 16 * 1024
@@ -235,7 +235,7 @@ class GcpStorageProviderBackend(StorageProvider):
         result = {
             "bucket": config["bucket"],
             "key_path": config["key_path"],
-            "threadpool_size": config["threadpool_size"]
+            "threadpool_size": config.get("threadpool_size", 40)
         }
 
         return result

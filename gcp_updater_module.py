@@ -37,7 +37,7 @@ try:
 except ImportError:
     current_context = LoggingContext.current_context
 
-logger = logging.getLogger("synapse.gcp.updater")
+logger = logging.getLogger(__name__)
 
 # @dataclass
 # class GcpUpdaterModuleConfig:
@@ -58,6 +58,8 @@ class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
   
     def __init__(self, config: dict, api: ModuleApi):
+        logger.debug("[GCP][UPDATER] Running GcpUpdaterModule __init__")
+        
         self.cache_directory = api._hs.config.media.media_store_path
         self.reactor = api._hs.get_reactor()
         self.config = config
@@ -78,7 +80,7 @@ class GcpUpdaterModule(object):
         def _loop():
             with LoggingContext(parent_context=parent_logcontext):
                 while True:
-                    logger.info("[GCP][UPDATER] running loop.")
+                    logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop.")
                     sqlite_conn = sqlite3.connect(self.config["cache_db"])
                     sqlite_conn.executescript(SCHEMA)
                     synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
