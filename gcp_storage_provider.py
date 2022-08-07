@@ -224,7 +224,7 @@ class GcpStorageProviderBackend(StorageProvider):
         return make_deferred_yieldable(d)
 
     @staticmethod
-    def parse_config(config: any) -> Config:
+    def parse_config(config: any):
         """Called on startup to parse config supplied. This should parse
         the config and raise if there is a problem.
 
