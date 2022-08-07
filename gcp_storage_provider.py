@@ -187,17 +187,17 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
-        file_full_path = "%s/%s" % (self.cache_directory, path)
-        logger.debug("[GCP][STORAGE] Storing file \"%s\".", file_full_path)
+        logger.debug("[GCP][STORAGE] Storing file \"%s\".", path)
 
         # parent_logcontext = current_context()
 
         def _store_file():
-            logger.debug("[GCP][STORAGE] Storing in thread \"%s\".", file_full_path)
+            logger.debug("[GCP][STORAGE] Storing in thread \"%s\".", path)
             # with LoggingContext(parent_context=parent_logcontext):
             client = self._get_gcp_client()
             bucket = client.bucket(self.bucket)
-            blob = bucket.blob(file_full_path)
+            blob = bucket.blob(path)
+            file_full_path = "%s/%s" % (self.cache_directory, path)
             blob.upload_from_filename(file_full_path)
 
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _store_file)
@@ -209,14 +209,13 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
-        file_full_path = "%s/%s".format(self.cache_directory, path)
-        logger.debug("[GCP][STORAGE] Fetching file \"%s\".", file_full_path)
+        logger.debug("[GCP][STORAGE] Fetching file \"%s\".", path)
         # logcontext = current_context()
 
         d = defer.Deferred()
 
         def _get_file():
-            gcp_download_task(self._get_gcp_client(), self.bucket, file_full_path, self.reactor, d)
+            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.reactor, d)
 
         self._gcp_storage_pool.callInThread(_get_file)
         return make_deferred_yieldable(d)
