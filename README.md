@@ -86,3 +86,13 @@ For maintainers:
 2. Create a release on GitHub for this version.
 3. When published, a [GitHub action workflow](https://github.com/matrix-org/synapse-s3-storage-provider/actions/workflows/release.yml) will build the package and upload to [PyPI](https://pypi.org/project/synapse-s3-storage-provider/).
 
+
+
+## Installing virtualenv
+
+```bash
+pip install virtualenv
+virtualenv synapse-gcp-storage-provider
+source synapse-gcp-storage-provider/bin/activate
+synapse-gcp-storage-provider/bin/pip install google-cloud-storage
+```

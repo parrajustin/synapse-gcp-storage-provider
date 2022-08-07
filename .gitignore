@@ -106,3 +106,6 @@ _trial*
 
 # PyCharm project settings
 .idea
+
+# Ignore python virtual env
+.venv
