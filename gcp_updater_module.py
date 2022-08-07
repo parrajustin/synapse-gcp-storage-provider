@@ -76,11 +76,17 @@ class GcpUpdaterModule(object):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
             sqlite_conn = sqlite3.connect(self.config["cache_db"])
+            logger.debug("[GCP][UPDATER] a.")
             sqlite_conn.executescript(SCHEMA)
+            logger.debug("[GCP][UPDATER] b.")
             synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
+            logger.debug("[GCP][UPDATER] c.")
             parsed_duration = self._parse_duration(self.config["duration"])
+            logger.debug("[GCP][UPDATER] d.")
             self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
+            logger.debug("[GCP][UPDATER] e.")
             self._run_check_delete(sqlite_conn, self.cache_directory)
+            logger.debug("[GCP][UPDATER] f.")
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
@@ -110,6 +116,7 @@ class GcpUpdaterModule(object):
         logger.info(
             "[GCP][UPDATER] Syncing files that haven't been accessed since:", before_date.isoformat(" "),
         )
+        logger.debug("[GCP][UPDATER] Syncing files that haven't been.")
         update_count = 0
 
         with sqlite_conn:
