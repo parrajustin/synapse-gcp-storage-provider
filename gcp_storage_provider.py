@@ -43,13 +43,6 @@ from google.cloud.storage.fileio import BlobReader
 #     key_path: str
 #     threadpool_size: int
 
-
-# Synapse 1.13.0 moved current_context to a module-level function.
-# try:
-#     from synapse.logging.context import current_context
-# except ImportError:
-#     current_context = LoggingContext.current_context
-
 logger = logging.getLogger(__name__)
 
 # Chunk size to use when reading from gcp connection in bytes
@@ -202,7 +195,7 @@ class GcpStorageProviderBackend(StorageProvider):
             bucket = client.bucket(self.bucket)
             blob = bucket.blob(path)
             blob.upload_from_filename(path)
-            logger.debug("[GCP] Storing file \"%s\".".format(path))
+            logger.debug("[GCP][STORAGE] Storing file \"%s\".".format(path))
 
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _store_file)
 
@@ -255,13 +248,13 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor
             against.
     """
     # with LoggingContext(parent_context=parent_logcontext):
-    logger.info("Fetching %s from gcp", key)
+    logger.info("[GCP][STORAGE] Fetching %s from gcp", key)
 
     gcp_bucket = gcp_client.bucket(bucket)
     blob = gcp_bucket.blob(key)
 
     if not blob.exists():
-        logger.error("Media \"%s\" not found in gcp.", key)
+        logger.error("[GCP][STORAGE] Media \"%s\" not found in gcp.", key)
         reactor.callFromThread(deferred.callback, None)
         return
 
@@ -269,10 +262,10 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor
     try:
         data = blob.open(mode="rb", chunk_size=READ_CHUNK_SIZE)
     except Exception as e:
-        logger.error("Error key \"%s\" downloading from gcp.", key)
+        logger.error("[GCP][STORAGE] Error key \"%s\" downloading from gcp.", key)
 
         if e.response["Error"]["Code"] in ("404", "NoSuchKey",):
-            logger.info("Media %s not found in S3", key)
+            logger.info("[GCP][STORAGE] Media %s not found in S3", key)
             reactor.callFromThread(deferred.callback, None)
             return
 
