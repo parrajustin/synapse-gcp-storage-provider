@@ -187,7 +187,7 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
-        file_full_path = "%s/%s".format(self.cache_directory, path)
+        file_full_path = "%s/%s" % (self.cache_directory, path)
         logger.debug("[GCP][STORAGE] Storing file \"%s\".", file_full_path)
 
         # parent_logcontext = current_context()
