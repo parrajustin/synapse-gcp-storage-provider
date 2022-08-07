@@ -4,6 +4,7 @@ import logging
 import sqlite3
 import datetime
 import os
+from dataclasses import dataclass
 
 from time import sleep
 from typing import List, Literal
@@ -38,7 +39,7 @@ except ImportError:
 
 logger = logging.getLogger("synapse.gcp.updater")
 
-@attr.s(auto_attribs=True, frozen=True)
+@dataclass
 class GcpUpdaterModuleConfig:
     bucket: str
     # Duration afterwhich items are deleted, a string with supports suffix of 's', 'm', 'h', 'd', 'M' or 'y'.
