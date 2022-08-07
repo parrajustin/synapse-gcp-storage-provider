@@ -41,8 +41,7 @@ logger = logging.getLogger("synapse.gcp.updater")
 @attr.s(auto_attribs=True, frozen=True)
 class GcpUpdaterModuleConfig:
     bucket: str
-    key_path: str
-    # Duration afterwhich items are deleted, a string with supports suffix of d, m or y.
+    # Duration afterwhich items are deleted, a string with supports suffix of 's', 'm', 'h', 'd', 'M' or 'y'.
     duration: str
     # Max threadpool size.
     threadpool_size: int
@@ -253,14 +252,20 @@ class GcpUpdaterModule(object):
         number = int(duration_str[:-1])
 
         now = datetime.datetime.now()
-        if suffix == "d":
-            then = now - datetime.timedelta(days=number)
+        if suffix == 's':
+            then = now - datetime.timedelta(seconds=number)
         elif suffix == "m":
+            then = now - datetime.timedelta(minutes=number)
+        elif suffix == "h":
+            then = now - datetime.timedelta(hours=number)
+        elif suffix == "d":
+            then = now - datetime.timedelta(days=number)
+        elif suffix == "M":
             then = now - datetime.timedelta(days=30 * number)
         elif suffix == "y":
             then = now - datetime.timedelta(days=365 * number)
         else:
-            raise Exception("duration must end in 'd', 'm' or 'y'")
+            raise Exception("duration must end in 's', 'm', 'h', 'd', 'M' or 'y'")
 
         return then
         
@@ -268,7 +273,6 @@ class GcpUpdaterModule(object):
     def parse_config(config: dict):
         rest_config = GcpUpdaterModuleConfig()
         rest_config.bucket = config["bucket"]
-        rest_config.key_path = config["key_path"]
         rest_config.duration = config.get("duration", "d10")
         rest_config.threadpool_size = config.get("threadpool_size", 8)
         rest_config.cache_db = config.get("cache_db", "/data/cache.db")
