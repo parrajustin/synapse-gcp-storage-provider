@@ -1,4 +1,5 @@
 
+from functools import cache
 import attr
 import logging
 import sqlite3
@@ -47,6 +48,122 @@ logger = logging.getLogger(__name__)
 #     # Number of seconds to sleep.
 #     sleep_secs: float
 
+def _update_db_process_rows(mtype: Literal['local', 'remote'], sqlite_cur: sqlite3.Cursor, synapse_db_curs: sqlite3.Cursor):
+    """Process rows extracted from Synapse's database and insert them in cache"""
+    update_count = 0
+
+    for (origin, media_id, filesystem_id) in synapse_db_curs:
+        sqlite_cur.execute(
+            """
+            INSERT OR IGNORE INTO media
+            (origin, media_id, filesystem_id, type, known_deleted)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (origin, media_id, filesystem_id, mtype, False),
+        )
+        update_count += sqlite_cur.rowcount
+
+    return update_count
+
+def _run_update_db(synapse_db_conn: sqlite3.Connection, sqlite_conn: sqlite3.Connection, before_date: datetime.datetime):
+    """Entry point for update-db command
+    """
+
+    local_sql = """
+        SELECT '', media_id, media_id
+        FROM local_media_repository
+        WHERE
+            COALESCE(last_access_ts, created_ts) < %s
+            AND url_cache IS NULL
+    """
+    remote_sql = """
+        SELECT media_origin, media_id, filesystem_id
+        FROM remote_media_cache
+        WHERE
+            COALESCE(last_access_ts, created_ts) < %s
+    """
+    last_access_ts = int(before_date.timestamp() * 1000)
+    logger.info(
+        "[GCP][UPDATER] Syncing files that haven't been accessed since:", before_date.isoformat(" "),
+    )
+    logger.debug("[GCP][UPDATER] Syncing files that haven't been.")
+    update_count = 0
+
+    with sqlite_conn:
+        sqlite_cur = sqlite_conn.cursor()
+
+        synapse_db_curs = synapse_db_conn.cursor()
+        for sql, mtype in ((local_sql, "local"), (remote_sql, "remote")):
+            synapse_db_curs.execute(sql.replace("%s", "?"), (last_access_ts,))
+            update_count += _update_db_process_rows(mtype, sqlite_cur, synapse_db_curs)
+
+    logger.info("[GCP][UPDATER] Synced", update_count, "new rows")
+
+    synapse_db_conn.close()
+
+
+def _get_not_deleted_count(sqlite_conn: sqlite3.Connection) -> sqlite3.Cursor:
+    """Get count of all rows in our cache that we don't think have been deleted
+    """
+    cur = sqlite_conn.cursor()
+
+    cur.execute(
+        """
+        SELECT COALESCE(count(*), 0) FROM media
+        WHERE NOT known_deleted
+        """
+    )
+    (count,) = cur.fetchone()
+    return count
+
+def _run_check_delete(sqlite_conn: sqlite3.Connection, base_path: str):
+    """Entry point for check-deleted command
+    """
+    deleted = []
+    it = _get_not_deleted_count(sqlite_conn)
+    logger.info("[GCP][UPDATER] Checking on ", _get_not_deleted_count(sqlite_conn), " undeleted files")
+
+    for origin, media_id, filesystem_id, m_type in it:
+        local_files = self._get_local_files(base_path, origin, filesystem_id, m_type)
+        if not local_files:
+            deleted.append((origin, media_id))
+
+    with sqlite_conn:
+        sqlite_conn.executemany(
+            """
+            UPDATE media SET known_deleted = ?
+            WHERE origin = ? AND media_id = ?
+            """,
+            ((True, o, m) for o, m in deleted),
+        )
+
+    logger.info("[GCP][UPDATER] Updated", len(deleted), "as deleted")
+
+def _parse_duration(duration_str: str) -> datetime.datetime:
+    """Parse a string into a duration supports suffix of d, m or y.
+    """
+    logger.debug("[GCP][UPDATER] Parsing ", duration_str)
+    suffix = duration_str[-1]
+    number = int(duration_str[:-1])
+
+    now = datetime.datetime.now()
+    then: datetime.datetime = None
+    if suffix == 's':
+        then = now - datetime.timedelta(seconds=number)
+    elif suffix == "m":
+        then = now - datetime.timedelta(minutes=number)
+    elif suffix == "h":
+        then = now - datetime.timedelta(hours=number)
+    elif suffix == "d":
+        then = now - datetime.timedelta(days=number)
+    elif suffix == "M":
+        then = now - datetime.timedelta(days=30 * number)
+    elif suffix == "y":
+        then = now - datetime.timedelta(days=365 * number)
+    else:
+        raise Exception("duration must end in 's', 'm', 'h', 'd', 'M' or 'y'")
+
+    return then
 
 class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
@@ -71,94 +188,27 @@ class GcpUpdaterModule(object):
         
         # parent_logcontext = current_context()
 
-        def _loop():
+        def _loop(cache_directory: str, cache_db: str, homeserver_db: str, duration:str):
             # with LoggingContext(parent_context=parent_logcontext):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
-            sqlite_conn = sqlite3.connect(self.config["cache_db"])
+            sqlite_conn = sqlite3.connect(cache_db)
             sqlite_conn.executescript(SCHEMA)
-            synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
-            logger.debug("[GCP][UPDATER] duration:", self.config["duration"])
-            parsed_duration = self._parse_duration(self.config["duration"])
+            synapse_db_conn = sqlite3.connect(homeserver_db)
+            logger.debug("[GCP][UPDATER] duration:", duration)
+            parsed_duration = _parse_duration(duration)
             logger.debug("[GCP][UPDATER] d.")
-            self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
+            _run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
             logger.debug("[GCP][UPDATER] e.")
-            self._run_check_delete(sqlite_conn, self.cache_directory)
+            _run_check_delete(sqlite_conn, cache_directory)
             logger.debug("[GCP][UPDATER] f.")
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop)
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"])
             self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
-
-    def _run_update_db(self, synapse_db_conn: sqlite3.Connection, sqlite_conn: sqlite3.Connection, before_date: datetime.datetime):
-        """Entry point for update-db command
-        """
-
-        local_sql = """
-            SELECT '', media_id, media_id
-            FROM local_media_repository
-            WHERE
-                COALESCE(last_access_ts, created_ts) < %s
-                AND url_cache IS NULL
-        """
-        remote_sql = """
-            SELECT media_origin, media_id, filesystem_id
-            FROM remote_media_cache
-            WHERE
-                COALESCE(last_access_ts, created_ts) < %s
-        """
-        last_access_ts = int(before_date.timestamp() * 1000)
-        logger.info(
-            "[GCP][UPDATER] Syncing files that haven't been accessed since:", before_date.isoformat(" "),
-        )
-        logger.debug("[GCP][UPDATER] Syncing files that haven't been.")
-        update_count = 0
-
-        with sqlite_conn:
-            sqlite_cur = sqlite_conn.cursor()
-
-            synapse_db_curs = synapse_db_conn.cursor()
-            for sql, mtype in ((local_sql, "local"), (remote_sql, "remote")):
-                synapse_db_curs.execute(sql.replace("%s", "?"), (last_access_ts,))
-                update_count += self._update_db_process_rows(mtype, sqlite_cur, synapse_db_curs)
-
-        logger.info("[GCP][UPDATER] Synced", update_count, "new rows")
-
-        synapse_db_conn.close()
-
-    def _update_db_process_rows(mtype: Literal['local', 'remote'], sqlite_cur: sqlite3.Cursor, synapse_db_curs: sqlite3.Cursor):
-        """Process rows extracted from Synapse's database and insert them in cache"""
-        update_count = 0
-
-        for (origin, media_id, filesystem_id) in synapse_db_curs:
-            sqlite_cur.execute(
-                """
-                INSERT OR IGNORE INTO media
-                (origin, media_id, filesystem_id, type, known_deleted)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (origin, media_id, filesystem_id, mtype, False),
-            )
-            update_count += sqlite_cur.rowcount
-
-        return update_count
-
-    def _get_not_deleted_count(sqlite_conn: sqlite3.Connection) -> sqlite3.Cursor:
-        """Get count of all rows in our cache that we don't think have been deleted
-        """
-        cur = sqlite_conn.cursor()
-
-        cur.execute(
-            """
-            SELECT COALESCE(count(*), 0) FROM media
-            WHERE NOT known_deleted
-            """
-        )
-        (count,) = cur.fetchone()
-        return count
 
     def _to_thumbnail_dir(origin: str, filesystem_id: str, m_type: Literal['local', 'remote']):
         """Get a relative path to the given media's thumbnail directory
@@ -226,55 +276,6 @@ class GcpUpdaterModule(object):
             pass
 
         return local_files
-
-    def _run_check_delete(self, sqlite_conn: sqlite3.Connection, base_path: str):
-        """Entry point for check-deleted command
-        """
-        deleted = []
-        it = self._get_not_deleted_count(sqlite_conn)
-        logger.info("[GCP][UPDATER] Checking on ", self._get_not_deleted_count(sqlite_conn), " undeleted files")
-
-        for origin, media_id, filesystem_id, m_type in it:
-            local_files = self._get_local_files(base_path, origin, filesystem_id, m_type)
-            if not local_files:
-                deleted.append((origin, media_id))
-
-        with sqlite_conn:
-            sqlite_conn.executemany(
-                """
-                UPDATE media SET known_deleted = ?
-                WHERE origin = ? AND media_id = ?
-                """,
-                ((True, o, m) for o, m in deleted),
-            )
-
-        logger.info("[GCP][UPDATER] Updated", len(deleted), "as deleted")
-
-    def _parse_duration(duration_str: str) -> datetime.datetime:
-        """Parse a string into a duration supports suffix of d, m or y.
-        """
-        logger.debug("[GCP][UPDATER] Parsing ", duration_str)
-        suffix = duration_str[-1]
-        number = int(duration_str[:-1])
-
-        now = datetime.datetime.now()
-        then: datetime.datetime = None
-        if suffix == 's':
-            then = now - datetime.timedelta(seconds=number)
-        elif suffix == "m":
-            then = now - datetime.timedelta(minutes=number)
-        elif suffix == "h":
-            then = now - datetime.timedelta(hours=number)
-        elif suffix == "d":
-            then = now - datetime.timedelta(days=number)
-        elif suffix == "M":
-            then = now - datetime.timedelta(days=30 * number)
-        elif suffix == "y":
-            then = now - datetime.timedelta(days=365 * number)
-        else:
-            raise Exception("duration must end in 's', 'm', 'h', 'd', 'M' or 'y'")
-
-        return then
         
     @staticmethod
     def parse_config(config: dict):
