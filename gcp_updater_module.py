@@ -75,20 +75,20 @@ class GcpUpdaterModule(object):
             "during", "shutdown", self._gcp_storage_pool.stop,
         )
         
-        parent_logcontext = current_context()
+        # parent_logcontext = current_context()
 
         def _loop():
-            with LoggingContext(parent_context=parent_logcontext):
-                while True:
-                    logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop.")
-                    sqlite_conn = sqlite3.connect(self.config["cache_db"])
-                    sqlite_conn.executescript(SCHEMA)
-                    synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
-                    parsed_duration = self._parse_duration(self.config["duration"])
-                    self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
-                    self._run_check_delete(sqlite_conn, self.cache_directory)
+            # with LoggingContext(parent_context=parent_logcontext):
+            while True:
+                logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop.")
+                sqlite_conn = sqlite3.connect(self.config["cache_db"])
+                sqlite_conn.executescript(SCHEMA)
+                synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
+                parsed_duration = self._parse_duration(self.config["duration"])
+                self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
+                self._run_check_delete(sqlite_conn, self.cache_directory)
 
-                    sleep(self.config["sleep_secs"])
+                sleep(self.config["sleep_secs"])
         
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop)
 
