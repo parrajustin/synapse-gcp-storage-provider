@@ -205,7 +205,7 @@ class GcpUpdaterModule(object):
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, args=(self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"]))
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, cache_directory=self.cache_directory, cache_db=self.config["cache_db"], homeserver_db=self.config["homeserver_db"], duration=self.config["duration"])
             self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
