@@ -76,11 +76,8 @@ class GcpUpdaterModule(object):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
             sqlite_conn = sqlite3.connect(self.config["cache_db"])
-            logger.debug("[GCP][UPDATER] a.")
             sqlite_conn.executescript(SCHEMA)
-            logger.debug("[GCP][UPDATER] b.")
             synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
-            logger.debug("[GCP][UPDATER] c.")
             parsed_duration = self._parse_duration(self.config["duration"])
             logger.debug("[GCP][UPDATER] d.")
             self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
