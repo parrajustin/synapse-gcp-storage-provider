@@ -18,7 +18,7 @@ setup(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
     ],
-    py_modules=["gcp_storage_provider", "gcp_updater_module"],
+    py_modules=["gcp_storage_provider", "gcp_updater_module", "auth_rest_provider"],
     scripts=["scripts/gcp_media_upload"],
     install_requires=[
         "google-cloud-storage>=2.5.0",

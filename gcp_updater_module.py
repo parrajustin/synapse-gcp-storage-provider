@@ -54,7 +54,7 @@ class GcpUpdaterModuleConfig:
     sleep_secs: float
 
 
-class GcpUpdaterModule:
+class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
   
     def __init__(self, config: GcpUpdaterModuleConfig, api: ModuleApi):
