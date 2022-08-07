@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from time import sleep
 from typing import List, Literal
+from regex import E
 from twisted.internet import threads
 from twisted.python.threadpool import ThreadPool
 
@@ -204,9 +205,12 @@ class GcpUpdaterModule(object):
             logger.debug("[GCP][UPDATER] f.")
         
         def _call_later():
-            logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, cache_directory=self.cache_directory, cache_db=self.config["cache_db"], homeserver_db=self.config["homeserver_db"], duration=self.config["duration"])
-            self.reactor.callLater(self.config["sleep_secs"], _call_later)
+            try:
+                logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.", self.cache_directory, ":", self.config["cache_db"], ":", self.config["homeserver_db"], ":", self.config["duration"])
+                threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"])
+                self.reactor.callLater(self.config["sleep_secs"], _call_later)
+            except Exception as e:
+                logger.debug("[GCP][UPDATER] Caught some error ", e.__cause__)
             
         _call_later()
 
