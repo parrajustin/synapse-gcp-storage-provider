@@ -37,10 +37,11 @@ from synapse.server import HomeServer
 from google.cloud.storage.fileio import BlobReader
 
 
-@dataclass
-class Config:
-    bucket: str
-    key_path: str
+# @dataclass
+# class Config:
+#     bucket: str
+#     key_path: str
+#     threadpool_size: int
 
 
 # Synapse 1.13.0 moved current_context to a module-level function.
@@ -143,10 +144,10 @@ class GcpStorageProviderBackend(StorageProvider):
         config: The config returned by `parse_config`
     """
 
-    def __init__(self, hs: HomeServer, config: Config):
+    def __init__(self, hs: HomeServer, config: dict):
         self.cache_directory = hs.config.media.media_store_path
-        self.bucket = config.bucket
-        self.key_path = config.key_path
+        self.bucket = config["bucket"]
+        self.key_path = config["key_path"]
 
         self.reactor = hs.get_reactor()
 
@@ -232,8 +233,9 @@ class GcpStorageProviderBackend(StorageProvider):
         In this case we return a dict with fields, `bucket` and `storage_class`
         """
         result = {
-            "bucket": config.bucket,
-            "key_path": config.key_path,
+            "bucket": config["bucket"],
+            "key_path": config["key_path"],
+            "threadpool_size": config["threadpool_size"]
         }
 
         return result

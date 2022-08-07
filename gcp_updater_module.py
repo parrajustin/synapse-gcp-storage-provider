@@ -39,31 +39,31 @@ except ImportError:
 
 logger = logging.getLogger("synapse.gcp.updater")
 
-@dataclass
-class GcpUpdaterModuleConfig:
-    bucket: str
-    # Duration afterwhich items are deleted, a string with supports suffix of 's', 'm', 'h', 'd', 'M' or 'y'.
-    duration: str
-    # Max threadpool size.
-    threadpool_size: int
-    # Cache db absolute location.
-    cache_db: str
-    # Synapse sqlite3 path
-    homserver_db: str
-    # Number of seconds to sleep.
-    sleep_secs: float
+# @dataclass
+# class GcpUpdaterModuleConfig:
+#     bucket: str
+#     # Duration afterwhich items are deleted, a string with supports suffix of 's', 'm', 'h', 'd', 'M' or 'y'.
+#     duration: str
+#     # Max threadpool size.
+#     threadpool_size: int
+#     # Cache db absolute location.
+#     cache_db: str
+#     # Synapse sqlite3 path
+#     homserver_db: str
+#     # Number of seconds to sleep.
+#     sleep_secs: float
 
 
 class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
   
-    def __init__(self, config: GcpUpdaterModuleConfig, api: ModuleApi):
+    def __init__(self, config: dict, api: ModuleApi):
         self.cache_directory = api._hs.config.media.media_store_path
         self.reactor = api._hs.get_reactor()
         self.config = config
 
         self._gcp_storage_pool = ThreadPool(
-            name="gcp-updater-pool", maxthreads=config.threadpool_size)
+            name="gcp-updater-pool", maxthreads=config["threadpool_size"])
         self._gcp_storage_pool.start()
 
         # Manually stop the thread pool on shutdown. If we don't do this then
@@ -79,14 +79,14 @@ class GcpUpdaterModule(object):
             with LoggingContext(parent_context=parent_logcontext):
                 while True:
                     logger.info("[GCP][UPDATER] running loop.")
-                    sqlite_conn = sqlite3.connect(self.config.cache_db)
+                    sqlite_conn = sqlite3.connect(self.config["cache_db"])
                     sqlite_conn.executescript(SCHEMA)
-                    synapse_db_conn = sqlite3.connect(self.config.homserver_db)
-                    parsed_duration = self._parse_duration(self.config.duration)
+                    synapse_db_conn = sqlite3.connect(self.config["homserver_db"])
+                    parsed_duration = self._parse_duration(self.config["duration"])
                     self._run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
                     self._run_check_delete(sqlite_conn, self.cache_directory)
 
-                    sleep(self.config.sleep_secs)
+                    sleep(self.config["sleep_secs"])
         
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop)
 
@@ -272,11 +272,12 @@ class GcpUpdaterModule(object):
         
     @staticmethod
     def parse_config(config: dict):
-        rest_config = GcpUpdaterModuleConfig()
-        rest_config.bucket = config["bucket"]
-        rest_config.duration = config.get("duration", "d10")
-        rest_config.threadpool_size = config.get("threadpool_size", 8)
-        rest_config.cache_db = config.get("cache_db", "/data/cache.db")
-        rest_config.homserver_db = config.get("homserver_db", "/data/homeserver.db")
-        rest_config.sleep_secs = config.get("sleep_secs", 60 * 5)
+        rest_config: dict = {
+            "bucket": config["bucket"],
+            "duration": config.get("duration", "d10"),
+            "threadpool_size": config.get("threadpool_size", 8),
+            "cache_db": config.get("cache_db", "/data/cache.db"),
+            "homserver_db": config.get("homserver_db", "/data/homeserver.db"),
+            "sleep_secs": config.get("sleep_secs", 60 * 5),
+        }
         return rest_config
