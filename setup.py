@@ -19,7 +19,7 @@ setup(
         "License :: OSI Approved :: Apache Software License",
     ],
     py_modules=["gcp_storage_provider", "gcp_updater_module", "auth_rest_provider"],
-    scripts=["scripts/gcp_media_upload"],
+    scripts=[],
     install_requires=[
         "google-cloud-storage>=2.5.0",
         "humanize>=0.5.1<0.6",
