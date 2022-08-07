@@ -45,10 +45,10 @@ from google.cloud.storage.fileio import BlobReader
 
 
 # Synapse 1.13.0 moved current_context to a module-level function.
-try:
-    from synapse.logging.context import current_context
-except ImportError:
-    current_context = LoggingContext.current_context
+# try:
+#     from synapse.logging.context import current_context
+# except ImportError:
+#     current_context = LoggingContext.current_context
 
 logger = logging.getLogger(__name__)
 
@@ -194,15 +194,15 @@ class GcpStorageProviderBackend(StorageProvider):
             file_info: The metadata of the file.
         """
 
-        parent_logcontext = current_context()
+        # parent_logcontext = current_context()
 
         def _store_file():
-            with LoggingContext(parent_context=parent_logcontext):
-                client = self._get_gcp_client()
-                bucket = client.bucket(self.bucket)
-                blob = bucket.blob(path)
-                blob.upload_from_filename(path)
-                logger.debug("[GCP] Storing file \"%s\".".format(path))
+            # with LoggingContext(parent_context=parent_logcontext):
+            client = self._get_gcp_client()
+            bucket = client.bucket(self.bucket)
+            blob = bucket.blob(path)
+            blob.upload_from_filename(path)
+            logger.debug("[GCP] Storing file \"%s\".".format(path))
 
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _store_file)
 
@@ -213,12 +213,12 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
-        logcontext = current_context()
+        # logcontext = current_context()
 
         d = defer.Deferred()
 
         def _get_file():
-            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.reactor, d, logcontext)
+            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.reactor, d)
 
         self._gcp_storage_pool.callInThread(_get_file)
         return make_deferred_yieldable(d)
@@ -241,7 +241,7 @@ class GcpStorageProviderBackend(StorageProvider):
         return result
 
 
-def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor: ISynapseReactor, deferred: defer.Deferred, parent_logcontext):
+def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor: ISynapseReactor, deferred: defer.Deferred):
     """Attempts to download a file from gcp.
 
     Args:
@@ -254,34 +254,34 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor
         parent_logcontext (LoggingContext): the logcontext to report logs and metrics
             against.
     """
-    with LoggingContext(parent_context=parent_logcontext):
-        logger.info("Fetching %s from gcp", key)
+    # with LoggingContext(parent_context=parent_logcontext):
+    logger.info("Fetching %s from gcp", key)
 
-        gcp_bucket = gcp_client.bucket(bucket)
-        blob = gcp_bucket.blob(key)
+    gcp_bucket = gcp_client.bucket(bucket)
+    blob = gcp_bucket.blob(key)
 
-        if not blob.exists():
-            logger.error("Media \"%s\" not found in gcp.", key)
+    if not blob.exists():
+        logger.error("Media \"%s\" not found in gcp.", key)
+        reactor.callFromThread(deferred.callback, None)
+        return
+
+    data: BlobReader = None
+    try:
+        data = blob.open(mode="rb", chunk_size=READ_CHUNK_SIZE)
+    except Exception as e:
+        logger.error("Error key \"%s\" downloading from gcp.", key)
+
+        if e.response["Error"]["Code"] in ("404", "NoSuchKey",):
+            logger.info("Media %s not found in S3", key)
             reactor.callFromThread(deferred.callback, None)
             return
 
-        data: BlobReader = None
-        try:
-            data = blob.open(mode="rb", chunk_size=READ_CHUNK_SIZE)
-        except Exception as e:
-            logger.error("Error key \"%s\" downloading from gcp.", key)
+        reactor.callFromThread(deferred.errback, Failure())
+        return
 
-            if e.response["Error"]["Code"] in ("404", "NoSuchKey",):
-                logger.info("Media %s not found in S3", key)
-                reactor.callFromThread(deferred.callback, None)
-                return
-
-            reactor.callFromThread(deferred.errback, Failure())
-            return
-
-        producer = _GcpResponder()
-        reactor.callFromThread(deferred.callback, producer)
-        _stream_to_producer(reactor, producer, data, timeout=90.0)
+    producer = _GcpResponder()
+    reactor.callFromThread(deferred.callback, producer)
+    _stream_to_producer(reactor, producer, data, timeout=90.0)
 
 
 def _stream_to_producer(reactor: ISynapseReactor, producer: _GcpResponder, data: BlobReader, status=None, timeout=None):

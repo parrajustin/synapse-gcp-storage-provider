@@ -31,12 +31,6 @@ SCHEMA = """
     CREATE INDEX IF NOT EXISTS deleted_idx ON media(known_deleted);
 """
 
-# Synapse 1.13.0 moved current_context to a module-level function.
-try:
-    from synapse.logging.context import current_context
-except ImportError:
-    current_context = LoggingContext.current_context
-
 logger = logging.getLogger(__name__)
 
 # @dataclass
