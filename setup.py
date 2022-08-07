@@ -22,10 +22,6 @@ setup(
     scripts=[],
     install_requires=[
         "google-cloud-storage>=2.5.0",
-        "humanize>=0.5.1<0.6",
-        "psycopg2>=2.7.5<3.0",
-        "PyYAML>=3.13<4.0",
-        "tqdm>=4.26.0<5.0",
         "Twisted",
     ],
 )
