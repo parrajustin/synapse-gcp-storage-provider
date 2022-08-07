@@ -138,6 +138,7 @@ class GcpStorageProviderBackend(StorageProvider):
     """
 
     def __init__(self, hs: HomeServer, config: dict):
+        logger.debug("[GCP][STORAGE] Running __init__")
         self.cache_directory = hs.config.media.media_store_path
         self.bucket = config["bucket"]
         self.key_path = config["key_path"]
@@ -191,12 +192,12 @@ class GcpStorageProviderBackend(StorageProvider):
         # parent_logcontext = current_context()
 
         def _store_file():
+            logger.debug("[GCP][STORAGE] Storing in thread \"%s\".", path)
             # with LoggingContext(parent_context=parent_logcontext):
             client = self._get_gcp_client()
             bucket = client.bucket(self.bucket)
             blob = bucket.blob(path)
             blob.upload_from_filename(path)
-            logger.debug("[GCP][STORAGE] Storing in thread \"%s\".", path)
 
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _store_file)
 
