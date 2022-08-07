@@ -255,10 +255,12 @@ class GcpUpdaterModule(object):
     def _parse_duration(duration_str: str) -> datetime.datetime:
         """Parse a string into a duration supports suffix of d, m or y.
         """
+        logger.debug("[GCP][UPDATER] Parsing ", duration_str)
         suffix = duration_str[-1]
         number = int(duration_str[:-1])
 
         now = datetime.datetime.now()
+        then: datetime.datetime = None
         if suffix == 's':
             then = now - datetime.timedelta(seconds=number)
         elif suffix == "m":
