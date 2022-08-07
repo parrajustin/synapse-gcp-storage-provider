@@ -186,6 +186,7 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
+        logger.debug("[GCP][STORAGE] Storing file \"%s\".", path)
 
         # parent_logcontext = current_context()
 
@@ -195,7 +196,7 @@ class GcpStorageProviderBackend(StorageProvider):
             bucket = client.bucket(self.bucket)
             blob = bucket.blob(path)
             blob.upload_from_filename(path)
-            logger.debug("[GCP][STORAGE] Storing file \"%s\".".format(path))
+            logger.debug("[GCP][STORAGE] Storing in thread \"%s\".", path)
 
         threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _store_file)
 
@@ -206,6 +207,7 @@ class GcpStorageProviderBackend(StorageProvider):
             path: Relative path of file in local cache
             file_info: The metadata of the file.
         """
+        logger.debug("[GCP][STORAGE] Fetching file \"%s\".", path)
         # logcontext = current_context()
 
         d = defer.Deferred()
