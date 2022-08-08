@@ -192,13 +192,13 @@ class GcpUpdaterModule(object):
         
         # parent_logcontext = current_context()
 
-        def _loop(cache_directory: str = "default", cache_db: str = "default", homeserver_db: str = "default", duration:str = "default"):
+        def _loop(cache_directory: str = "default", cache_db: str = "default", homeserver_db: str = "default", duration:str = "1m"):
             # with LoggingContext(parent_context=parent_logcontext):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
             logger.debug("[GCP][UPDATER] duration:", duration)
             logger.debug("[GCP][UPDATER] cache_db:", cache_db)
-            logger.debug("[GCP][UPDATER] cache_directory:", cache_directory)
+            logger.debug("[GCP][UPDATER] cache_directory:", self.cache_directory)
             logger.debug("[GCP][UPDATER] homeserver_db:", homeserver_db)
             sqlite_conn = sqlite3.connect(cache_db)
             sqlite_conn.executescript(SCHEMA)
@@ -219,7 +219,7 @@ class GcpUpdaterModule(object):
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"]).addErrback(_error)
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop).addErrback(_error)
             self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
