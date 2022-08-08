@@ -310,9 +310,9 @@ def _run_upload(gcp_client: storage.Client, bucket: str, sqlite_conn: sqlite3.Co
                     head, tail = os.path.split(head)
                 while head and tail:
                     try:
-                        logger.debug("[GCP][UPDATER] Removing dir %s.", head)
-                        if head is base_path:
+                        if head == base_path:
                             break
+                        logger.debug("[GCP][UPDATER] Removing dir %s", head)
                         os.rmdir(head)
                     except OSError:
                         break
