@@ -215,7 +215,7 @@ class GcpStorageProviderBackend(StorageProvider):
         d = defer.Deferred()
 
         def _get_file():
-            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.reactor, d)
+            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.cache_directory, self.reactor, d)
 
         self._gcp_storage_pool.callInThread(_get_file)
         return make_deferred_yieldable(d)
@@ -238,7 +238,7 @@ class GcpStorageProviderBackend(StorageProvider):
         return result
 
 
-def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor: ISynapseReactor, deferred: defer.Deferred):
+def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, cache_directory: str, reactor: ISynapseReactor, deferred: defer.Deferred):
     """Attempts to download a file from gcp.
 
     Args:
@@ -269,12 +269,18 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, reactor
         logger.error("[GCP][STORAGE] Error key \"%s\" downloading from gcp.", key)
 
         if e.response["Error"]["Code"] in ("404", "NoSuchKey",):
-            logger.info("[GCP][STORAGE] Media %s not found in S3", key)
+            logger.error("[GCP][STORAGE] Media %s not found in gcp", key)
             reactor.callFromThread(deferred.callback, None)
             return
 
         reactor.callFromThread(deferred.errback, Failure())
         return
+
+    try:
+        file_full_path = "%s/%s" % (cache_directory, key)
+        blob.download_to_filename(file_full_path)
+    except Exception as e:
+        logger.error('[GCP][UPDATER] %s', str(e))
 
     producer = _GcpResponder()
     reactor.callFromThread(deferred.callback, producer)
