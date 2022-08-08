@@ -1,4 +1,6 @@
 
+from ast import Lambda
+from distutils.log import debug
 from functools import cache
 import attr
 import logging
@@ -10,6 +12,7 @@ from dataclasses import dataclass
 from time import sleep
 from typing import List, Literal
 from regex import E
+from twisted.python.failure import Failure
 from twisted.internet import threads
 from twisted.python.threadpool import ThreadPool
 
@@ -203,14 +206,18 @@ class GcpUpdaterModule(object):
             logger.debug("[GCP][UPDATER] e.")
             _run_check_delete(sqlite_conn, cache_directory)
             logger.debug("[GCP][UPDATER] f.")
+
+        def _error(failure: Failure):
+            logger.error('%(error_line)s - %(error_type)s: %(error_msg)s' % {
+                'error_type': str(failure.type).split("'")[1],
+                'error_line': failure.getBriefTraceback().split()[-1],
+                'error_msg': failure.getErrorMessage(),
+            })
         
         def _call_later():
-            try:
-                logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.", self.cache_directory, ":", self.config["cache_db"], ":", self.config["homeserver_db"], ":", self.config["duration"])
-                threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"])
-                self.reactor.callLater(self.config["sleep_secs"], _call_later)
-            except Exception as e:
-                logger.debug("[GCP][UPDATER] Caught some error ", e.__cause__)
+            logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.", self.cache_directory, ":", self.config["cache_db"], ":", self.config["homeserver_db"], ":", self.config["duration"])
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"]).addErrback(_error)
+            self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
 
