@@ -300,14 +300,27 @@ def _run_upload(gcp_client: storage.Client, bucket: str, sqlite_conn: sqlite3.Co
             size = os.path.getsize(local_path)
             os.remove(local_path)
 
-            # try:
-            #     # This may have lead to an empty directory, so lets remove all
-            #     # that are empty
-            #     os.removedirs(os.path.dirname(local_path))
-            # except Exception:
-            #     # The directory might not be empty, or maybe we don't have
-            #     # permission. Either way doesn't really matter.
-            #     pass
+            try:
+                # This may have lead to an empty directory, so lets remove all
+                # that are empty up till the base path.
+                name = os.path.dirname(local_path)
+                os.rmdir(name)
+                head, tail = os.path.split(name)
+                if not tail:
+                    head, tail = os.path.split(head)
+                while head and tail:
+                    try:
+                        logger.debug("[GCP][UPDATER] Removing dir %s.", head)
+                        if head is base_path:
+                            break
+                        os.rmdir(head)
+                    except OSError:
+                        break
+                    head, tail = os.path.split(head)
+            except Exception:
+                # The directory might not be empty, or maybe we don't have
+                # permission. Either way doesn't really matter.
+                pass
 
             media_deleted_files += 1
             deleted_files += 1
