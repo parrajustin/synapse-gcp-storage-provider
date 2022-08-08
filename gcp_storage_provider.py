@@ -215,7 +215,15 @@ class GcpStorageProviderBackend(StorageProvider):
         d = defer.Deferred()
 
         def _get_file():
-            gcp_download_task(self._get_gcp_client(), self.bucket, path, self.cache_directory, self.reactor, d)
+            gcp_download_task(
+                self._get_gcp_client(),
+                self.bucket,
+                path,
+                self.cache_directory,
+                self.reactor,
+                self._gcp_storage_pool,
+                d
+            )
 
         self._gcp_storage_pool.callInThread(_get_file)
         return make_deferred_yieldable(d)
@@ -238,7 +246,7 @@ class GcpStorageProviderBackend(StorageProvider):
         return result
 
 
-def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, cache_directory: str, reactor: ISynapseReactor, deferred: defer.Deferred):
+def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, cache_directory: str, reactor: ISynapseReactor, threadpool: ThreadPool, deferred: defer.Deferred):
     """Attempts to download a file from gcp.
 
     Args:
@@ -276,11 +284,13 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, cache_d
         reactor.callFromThread(deferred.errback, Failure())
         return
 
-    try:
-        file_full_path = "%s/%s" % (cache_directory, key)
-        blob.download_to_filename(file_full_path)
-    except Exception as e:
-        logger.error('[GCP][UPDATER] %s', str(e))
+    def _background_download_content():
+        try:
+            file_full_path = "%s/%s" % (cache_directory, key)
+            blob.download_to_filename(file_full_path)
+        except Exception as e:
+            logger.error('[GCP][UPDATER] %s', str(e))
+    threads.deferToThreadPool(reactor, threadpool, _background_download_content)
 
     producer = _GcpResponder()
     reactor.callFromThread(deferred.callback, producer)
