@@ -287,9 +287,9 @@ def gcp_download_task(gcp_client: storage.Client, bucket: str, key: str, cache_d
 
     def _background_download_content():
         try:
+            file_full_path = "%s/%s" % (cache_directory, key)
             output_file = Path(file_full_path)
             output_file.parent.mkdir(exist_ok=True, parents=True)
-            file_full_path = "%s/%s" % (cache_directory, key)
             blob.download_to_filename(file_full_path)
         except Exception as e:
             logger.error('[GCP][UPDATER] %s', str(e))
