@@ -300,14 +300,14 @@ def _run_upload(gcp_client: storage.Client, bucket: str, sqlite_conn: sqlite3.Co
             size = os.path.getsize(local_path)
             os.remove(local_path)
 
-            try:
-                # This may have lead to an empty directory, so lets remove all
-                # that are empty
-                os.removedirs(os.path.dirname(local_path))
-            except Exception:
-                # The directory might not be empty, or maybe we don't have
-                # permission. Either way doesn't really matter.
-                pass
+            # try:
+            #     # This may have lead to an empty directory, so lets remove all
+            #     # that are empty
+            #     os.removedirs(os.path.dirname(local_path))
+            # except Exception:
+            #     # The directory might not be empty, or maybe we don't have
+            #     # permission. Either way doesn't really matter.
+            #     pass
 
             media_deleted_files += 1
             deleted_files += 1
@@ -323,14 +323,12 @@ def _run_upload(gcp_client: storage.Client, bucket: str, sqlite_conn: sqlite3.Co
             # Mark as deleted only if *all* the local files have been deleted
             _mark_as_deleted(sqlite_conn, origin, media_id)
 
-    logger.debug("Uploaded %s media out of %s", uploaded_media, total)
-    logger.debug("Uploaded %s files", uploaded_files)
-    logger.debug("Uploaded %s bytes", uploaded_bytes)
-    # logger.debug("Uploaded", humanize.naturalsize(uploaded_bytes, gnu=True))
-    logger.debug("Deleted %s media", deleted_media)
-    logger.debug("Deleted %s files", deleted_files)
-    logger.debug("Deleted %s bytes", deleted_bytes)
-    # logger.debug("Deleted", humanize.naturalsize(deleted_bytes, gnu=True))
+    logger.info("[GCP][UPDATER] Uploaded %s media out of %s", uploaded_media, total)
+    logger.info("[GCP][UPDATER] Uploaded %s files", uploaded_files)
+    logger.info("[GCP][UPDATER] Uploaded %s bytes", uploaded_bytes)
+    logger.info("[GCP][UPDATER] Deleted %s media", deleted_media)
+    logger.info("[GCP][UPDATER] Deleted %s files", deleted_files)
+    logger.info("[GCP][UPDATER] Deleted %s bytes", deleted_bytes)
 
 class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
@@ -374,15 +372,10 @@ class GcpUpdaterModule(object):
             sqlite_conn = sqlite3.connect(self.cache_db)
             sqlite_conn.executescript(SCHEMA)
             synapse_db_conn = sqlite3.connect(self.homeserver_db)
-            logger.debug("[GCP][UPDATER] c.")
             parsed_duration = _parse_duration(self.duration)
-            logger.debug("[GCP][UPDATER] d.")
             _run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
-            logger.debug("[GCP][UPDATER] e.")
             _run_check_delete(sqlite_conn, self.cache_directory)
-            logger.debug("[GCP][UPDATER] f.")
             _run_upload(self._get_gcp_client(), self.bucket, sqlite_conn, self.cache_directory)
-            logger.debug("[GCP][UPDATER] e.")
 
         def _error(failure: Failure):
             logger.error('[GCP][UPDATER] %s - %s: %s',
