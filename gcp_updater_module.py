@@ -195,10 +195,10 @@ class GcpUpdaterModule(object):
             # with LoggingContext(parent_context=parent_logcontext):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
-            logger.debug("[GCP][UPDATER] duration:", duration)
-            logger.debug("[GCP][UPDATER] cache_db:", self.config["cache_db"])
-            logger.debug("[GCP][UPDATER] cache_directory:", cache_directory)
-            logger.debug("[GCP][UPDATER] homeserver_db:", homeserver_db)
+            logger.debug("[GCP][UPDATER] duration: %s", duration)
+            logger.debug("[GCP][UPDATER] cache_db: %s", self.config["cache_db"])
+            logger.debug("[GCP][UPDATER] cache_directory: %s", cache_directory)
+            logger.debug("[GCP][UPDATER] homeserver_db: %s", homeserver_db)
             sqlite_conn = sqlite3.connect(cache_db)
             sqlite_conn.executescript(SCHEMA)
             synapse_db_conn = sqlite3.connect(homeserver_db)
@@ -210,7 +210,7 @@ class GcpUpdaterModule(object):
             logger.debug("[GCP][UPDATER] f.")
 
         def _error(failure: Failure):
-            logger.error('%(error_line)s - %(error_type)s: %(error_msg)s' % {
+            logger.error('[GCP][UPDATER] %(error_line)s - %(error_type)s: %(error_msg)s' % {
                 'error_type': str(failure.type).split("'")[1],
                 'error_line': failure.getBriefTraceback().split()[-1],
                 'error_msg': failure.getErrorMessage(),
