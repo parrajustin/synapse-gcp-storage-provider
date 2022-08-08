@@ -8,13 +8,17 @@ import sqlite3
 import datetime
 import os
 from dataclasses import dataclass
+import threading
 
 from time import sleep
 from typing import List, Literal
 from twisted.python.failure import Failure
 from twisted.internet import threads
 from twisted.python.threadpool import ThreadPool
+from google.cloud import storage
+from twisted.python.threadpool import ThreadPool
 
+from synapse.types import ISynapseReactor
 from synapse.module_api import ModuleApi
 from synapse.logging.context import LoggingContext
 
@@ -39,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 # @dataclass
 # class GcpUpdaterModuleConfig:
+#     key_path: str
 #     bucket: str
 #     # Duration afterwhich items are deleted, a string with supports suffix of 's', 'm', 'h', 'd', 'M' or 'y'.
 #     duration: str
@@ -86,10 +91,7 @@ def _run_update_db(synapse_db_conn: sqlite3.Connection, sqlite_conn: sqlite3.Con
             COALESCE(last_access_ts, created_ts) < %s
     """
     last_access_ts = int(before_date.timestamp() * 1000)
-    logger.info(
-        "[GCP][UPDATER] Syncing files that haven't been accessed since:", before_date.isoformat(" "),
-    )
-    logger.debug("[GCP][UPDATER] Syncing files that haven't been.")
+    logger.info("[GCP][UPDATER] Syncing files that haven't been accessed since: %s", before_date.isoformat(" "))
     update_count = 0
 
     with sqlite_conn:
@@ -100,12 +102,24 @@ def _run_update_db(synapse_db_conn: sqlite3.Connection, sqlite_conn: sqlite3.Con
             synapse_db_curs.execute(sql.replace("%s", "?"), (last_access_ts,))
             update_count += _update_db_process_rows(mtype, sqlite_cur, synapse_db_curs)
 
-    logger.info("[GCP][UPDATER] Synced", update_count, "new rows")
+    logger.info("[GCP][UPDATER] Synced %i new rows", update_count)
 
     synapse_db_conn.close()
 
+def _get_not_deleted(sqlite_conn) -> sqlite3.Cursor:
+    """Get all rows in our cache that we don't think have been deleted
+    """
+    cur = sqlite_conn.cursor()
 
-def _get_not_deleted_count(sqlite_conn: sqlite3.Connection) -> sqlite3.Cursor:
+    cur.execute(
+        """
+        SELECT origin, media_id, filesystem_id, type FROM media
+        WHERE NOT known_deleted
+        """
+    )
+    return cur
+
+def _get_not_deleted_count(sqlite_conn: sqlite3.Connection) -> int:
     """Get count of all rows in our cache that we don't think have been deleted
     """
     cur = sqlite_conn.cursor()
@@ -119,15 +133,82 @@ def _get_not_deleted_count(sqlite_conn: sqlite3.Connection) -> sqlite3.Cursor:
     (count,) = cur.fetchone()
     return count
 
+def _to_thumbnail_dir(origin: str, filesystem_id: str, m_type: Literal['local', 'remote']):
+    """Get a relative path to the given media's thumbnail directory
+    """
+    if m_type == "local":
+        thumbnail_path = os.path.join(
+            "local_thumbnails",
+            filesystem_id[:2],
+            filesystem_id[2:4],
+            filesystem_id[4:],
+        )
+    elif m_type == "remote":
+        thumbnail_path = os.path.join(
+            "remote_thumbnail",
+            origin,
+            filesystem_id[:2],
+            filesystem_id[2:4],
+            filesystem_id[4:],
+        )
+    else:
+        raise Exception("Unexpected media type %r", m_type)
+
+    return thumbnail_path
+
+def _to_path(origin: str, filesystem_id: str, m_type: Literal['local', 'remote']):
+    """Get a relative path to the given media
+    """
+    if m_type == "local":
+        file_path = os.path.join(
+            "local_content", filesystem_id[:2], filesystem_id[2:4], filesystem_id[4:],
+        )
+    elif m_type == "remote":
+        file_path = os.path.join(
+            "remote_content",
+            origin,
+            filesystem_id[:2],
+            filesystem_id[2:4],
+            filesystem_id[4:],
+        )
+    else:
+        raise Exception("Unexpected media type %r", m_type)
+
+    return file_path
+
+def _get_local_files(base_path: str, origin: str, filesystem_id: str, m_type: Literal['local', 'remote']) -> List[str]:
+    """Get a list of relative paths to undeleted files for the given media
+    """
+    local_files = []
+
+    original_path = _to_path(origin, filesystem_id, m_type)
+    if os.path.exists(os.path.join(base_path, original_path)):
+        local_files.append(original_path)
+
+    thumbnail_path = _to_thumbnail_dir(origin, filesystem_id, m_type)
+    try:
+        with os.scandir(os.path.join(base_path, thumbnail_path)) as dir_entries:
+            for dir_entry in dir_entries:
+                if dir_entry.is_file():
+                    local_files.append(os.path.join(thumbnail_path, dir_entry.name))
+    except FileNotFoundError:
+        # The thumbnail directory does not exist
+        pass
+    except NotADirectoryError:
+        # The thumbnail directory is not a directory for some reason
+        pass
+
+    return local_files
+
 def _run_check_delete(sqlite_conn: sqlite3.Connection, base_path: str):
     """Entry point for check-deleted command
     """
     deleted = []
-    it = _get_not_deleted_count(sqlite_conn)
-    logger.info("[GCP][UPDATER] Checking on ", _get_not_deleted_count(sqlite_conn), " undeleted files")
+    it = _get_not_deleted(sqlite_conn)
+    logger.info("[GCP][UPDATER] Checking on %s undeleted files", _get_not_deleted_count(sqlite_conn))
 
     for origin, media_id, filesystem_id, m_type in it:
-        local_files = self._get_local_files(base_path, origin, filesystem_id, m_type)
+        local_files = _get_local_files(base_path, origin, filesystem_id, m_type)
         if not local_files:
             deleted.append((origin, media_id))
 
@@ -140,12 +221,12 @@ def _run_check_delete(sqlite_conn: sqlite3.Connection, base_path: str):
             ((True, o, m) for o, m in deleted),
         )
 
-    logger.info("[GCP][UPDATER] Updated", len(deleted), "as deleted")
+    logger.info("[GCP][UPDATER] Updated %i as deleted", len(deleted))
 
 def _parse_duration(duration_str: str) -> datetime.datetime:
     """Parse a string into a duration supports suffix of d, m or y.
     """
-    logger.debug("[GCP][UPDATER] Parsing ", duration_str)
+    logger.debug("[GCP][UPDATER] Parsing %s", duration_str)
     suffix = duration_str[-1]
     number = int(duration_str[:-1])
 
@@ -168,6 +249,89 @@ def _parse_duration(duration_str: str) -> datetime.datetime:
 
     return then
 
+def _mark_as_deleted(sqlite_conn, origin, media_id):
+    with sqlite_conn:
+        sqlite_conn.execute(
+            """
+            UPDATE media SET known_deleted = ?
+            WHERE origin = ? AND media_id = ?
+            """,
+            (True, origin, media_id),
+        )
+
+def _run_upload(gcp_client: storage.Client, bucket: str, sqlite_conn: sqlite3.Connection, base_path: str):
+    """Entry point for upload command
+    """
+    total = _get_not_deleted_count(sqlite_conn)
+    logger.debug("[GCP][UPDATER] Uploading %i total files.", total)
+
+    uploaded_media = 0
+    uploaded_files = 0
+    uploaded_bytes = 0
+    deleted_media = 0
+    deleted_files = 0
+    deleted_bytes = 0
+
+    it = _get_not_deleted(sqlite_conn)
+    gcp_bucket = gcp_client.bucket(bucket)
+
+    for origin, media_id, filesystem_id, m_type in it:
+        local_files = _get_local_files(base_path, origin, filesystem_id, m_type)
+
+        if not local_files:
+            _mark_as_deleted(sqlite_conn, origin, media_id)
+            continue
+
+        # Counters of uploaded and deleted files for this media only
+        media_uploaded_files = 0
+        media_deleted_files = 0
+
+        for rel_file_path in local_files:
+            local_path = os.path.join(base_path, rel_file_path)
+            blob = gcp_bucket.blob(rel_file_path)
+
+            if not blob.exists():
+                blob.upload_from_filename(local_path)
+
+                media_uploaded_files += 1
+                uploaded_files += 1
+                uploaded_bytes += os.path.getsize(local_path)
+
+            size = os.path.getsize(local_path)
+            os.remove(local_path)
+
+            try:
+                # This may have lead to an empty directory, so lets remove all
+                # that are empty
+                os.removedirs(os.path.dirname(local_path))
+            except Exception:
+                # The directory might not be empty, or maybe we don't have
+                # permission. Either way doesn't really matter.
+                pass
+
+            media_deleted_files += 1
+            deleted_files += 1
+            deleted_bytes += size
+
+        if media_uploaded_files:
+            uploaded_media += 1
+
+        if media_deleted_files:
+            deleted_media += 1
+
+        if media_deleted_files == len(local_files):
+            # Mark as deleted only if *all* the local files have been deleted
+            _mark_as_deleted(sqlite_conn, origin, media_id)
+
+    logger.debug("Uploaded %s media out of %s", uploaded_media, total)
+    logger.debug("Uploaded %s files", uploaded_files)
+    logger.debug("Uploaded %s bytes", uploaded_bytes)
+    # logger.debug("Uploaded", humanize.naturalsize(uploaded_bytes, gnu=True))
+    logger.debug("Deleted %s media", deleted_media)
+    logger.debug("Deleted %s files", deleted_files)
+    logger.debug("Deleted %s bytes", deleted_bytes)
+    # logger.debug("Deleted", humanize.naturalsize(deleted_bytes, gnu=True))
+
 class GcpUpdaterModule(object):
     """Module that removes media folder files if they haven't been accessed in |duration| time."""
   
@@ -177,6 +341,7 @@ class GcpUpdaterModule(object):
         self.cache_directory = api._hs.config.media.media_store_path
         self.reactor = api._hs.get_reactor()
         self.config = config
+        self.key_path = config["key_path"]
 
         self._gcp_storage_pool = ThreadPool(
             name="gcp-updater-pool", maxthreads=config["threadpool_size"])
@@ -188,113 +353,76 @@ class GcpUpdaterModule(object):
         self.reactor.addSystemEventTrigger(
             "during", "shutdown", self._gcp_storage_pool.stop,
         )
-        
-        # parent_logcontext = current_context()
 
-        def _loop(cache_directory: str, cache_db: str, homeserver_db: str, duration: str):
+        self._gcp_client = None
+        self._gcp_client_lock = threading.Lock()
+        
+        # Setup parameters.
+        self.cache_db: str = self.config["cache_db"]
+        self.homeserver_db: str = self.config["homeserver_db"]
+        self.duration: str = self.config["duration"]
+        self.bucket: str = self.config["bucket"]
+
+        def _loop():
             # with LoggingContext(parent_context=parent_logcontext):
             # while True:
-            logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
-            logger.debug("[GCP][UPDATER] duration: %s", duration)
-            logger.debug("[GCP][UPDATER] cache_db: %s", self.config["cache_db"])
-            logger.debug("[GCP][UPDATER] cache_directory: %s", cache_directory)
-            logger.debug("[GCP][UPDATER] homeserver_db: %s", homeserver_db)
-            sqlite_conn = sqlite3.connect(cache_db)
+            logger.info("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
+            logger.debug("[GCP][UPDATER] duration: %s", self.duration)
+            logger.debug("[GCP][UPDATER] cache_db: %s", self.cache_db)
+            logger.debug("[GCP][UPDATER] cache_directory: %s", self.cache_directory)
+            logger.debug("[GCP][UPDATER] homeserver_db: %s", self.homeserver_db)
+            sqlite_conn = sqlite3.connect(self.cache_db)
             sqlite_conn.executescript(SCHEMA)
-            synapse_db_conn = sqlite3.connect(homeserver_db)
+            synapse_db_conn = sqlite3.connect(self.homeserver_db)
             logger.debug("[GCP][UPDATER] c.")
-            parsed_duration = _parse_duration(duration)
+            parsed_duration = _parse_duration(self.duration)
             logger.debug("[GCP][UPDATER] d.")
             _run_update_db(synapse_db_conn, sqlite_conn, parsed_duration)
             logger.debug("[GCP][UPDATER] e.")
-            _run_check_delete(sqlite_conn, cache_directory)
+            _run_check_delete(sqlite_conn, self.cache_directory)
             logger.debug("[GCP][UPDATER] f.")
+            _run_upload(self._get_gcp_client(), self.bucket, sqlite_conn, self.cache_directory)
+            logger.debug("[GCP][UPDATER] e.")
 
         def _error(failure: Failure):
-            logger.error('[GCP][UPDATER] %(error_line)s - %(error_type)s: %(error_msg)s' % {
-                'error_type': str(failure.type).split("'")[1],
-                'error_line': failure.getBriefTraceback().split()[-1],
-                'error_msg': failure.getErrorMessage(),
-            })
+            logger.error('[GCP][UPDATER] %s - %s: %s',
+                str(failure.type).split("'")[1],
+                failure.getBriefTraceback().split()[-1],
+                failure.getErrorMessage(),
+            )
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory, self.config["cache_db"], self.config["homeserver_db"], self.config["duration"]).addErrback(_error)
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop).addErrback(_error)
             self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
 
-    def _to_thumbnail_dir(origin: str, filesystem_id: str, m_type: Literal['local', 'remote']):
-        """Get a relative path to the given media's thumbnail directory
-        """
-        if m_type == "local":
-            thumbnail_path = os.path.join(
-                "local_thumbnails",
-                filesystem_id[:2],
-                filesystem_id[2:4],
-                filesystem_id[4:],
-            )
-        elif m_type == "remote":
-            thumbnail_path = os.path.join(
-                "remote_thumbnail",
-                origin,
-                filesystem_id[:2],
-                filesystem_id[2:4],
-                filesystem_id[4:],
-            )
-        else:
-            raise Exception("Unexpected media type %r", m_type)
+    def _get_gcp_client(self) -> storage.Client:
+        # this method is designed to be thread-safe, so that we can share a
+        # single gcp client across multiple threads.
+        #
+        # (XXX: is creating a client actually a blocking operation, or could we do
+        # this on the main thread, to simplify all this?)
 
-        return thumbnail_path
+        # first of all, do a fast lock-free check
+        gcp_client = self._gcp_client
+        if gcp_client:
+            return gcp_client
 
-    def _to_path(origin: str, filesystem_id: str, m_type: Literal['local', 'remote']):
-        """Get a relative path to the given media
-        """
-        if m_type == "local":
-            file_path = os.path.join(
-                "local_content", filesystem_id[:2], filesystem_id[2:4], filesystem_id[4:],
-            )
-        elif m_type == "remote":
-            file_path = os.path.join(
-                "remote_content",
-                origin,
-                filesystem_id[:2],
-                filesystem_id[2:4],
-                filesystem_id[4:],
-            )
-        else:
-            raise Exception("Unexpected media type %r", m_type)
-
-        return file_path
-
-    def _get_local_files(self, base_path: str, origin: str, filesystem_id: str, m_type: Literal['local', 'remote']) -> List[str]:
-        """Get a list of relative paths to undeleted files for the given media
-        """
-        local_files = []
-
-        original_path = self._to_path(origin, filesystem_id, m_type)
-        if os.path.exists(os.path.join(base_path, original_path)):
-            local_files.append(original_path)
-
-        thumbnail_path = self._to_thumbnail_dir(origin, filesystem_id, m_type)
-        try:
-            with os.scandir(os.path.join(base_path, thumbnail_path)) as dir_entries:
-                for dir_entry in dir_entries:
-                    if dir_entry.is_file():
-                        local_files.append(os.path.join(thumbnail_path, dir_entry.name))
-        except FileNotFoundError:
-            # The thumbnail directory does not exist
-            pass
-        except NotADirectoryError:
-            # The thumbnail directory is not a directory for some reason
-            pass
-
-        return local_files
+        # no joy, grab the lock and repeat the check
+        with self._gcp_client_lock:
+            gcp_client = self._gcp_client
+            if not gcp_client:
+                gcp_client = storage.Client.from_service_account_json(self.key_path)
+                self._gcp_client = gcp_client
+            return gcp_client
         
     @staticmethod
     def parse_config(config: dict):
         rest_config: dict = {
             "bucket": config["bucket"],
+            "key_path": config["key_path"],
             "duration": config.get("duration", "d10"),
             "threadpool_size": config.get("threadpool_size", 8),
             "cache_db": config.get("cache_db", "/data/cache.db"),
