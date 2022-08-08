@@ -298,7 +298,7 @@ class GcpUpdaterModule(object):
             "duration": config.get("duration", "d10"),
             "threadpool_size": config.get("threadpool_size", 8),
             "cache_db": config.get("cache_db", "/data/cache.db"),
-            "homserver_db": config.get("homserver_db", "/data/homeserver.db"),
+            "homeserver_db": config.get("homeserver_db", "/data/homeserver.db"),
             "sleep_secs": config.get("sleep_secs", 60 * 5),
         }
         return rest_config
