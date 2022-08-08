@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 from time import sleep
 from typing import List, Literal
-from regex import E
 from twisted.python.failure import Failure
 from twisted.internet import threads
 from twisted.python.threadpool import ThreadPool
@@ -197,8 +196,8 @@ class GcpUpdaterModule(object):
             # while True:
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running loop in thread.")
             logger.debug("[GCP][UPDATER] duration:", duration)
-            logger.debug("[GCP][UPDATER] cache_db:", cache_db)
-            logger.debug("[GCP][UPDATER] cache_directory:", self.cache_directory)
+            logger.debug("[GCP][UPDATER] cache_db:", self.config["cache_db"])
+            logger.debug("[GCP][UPDATER] cache_directory:", cache_directory)
             logger.debug("[GCP][UPDATER] homeserver_db:", homeserver_db)
             sqlite_conn = sqlite3.connect(cache_db)
             sqlite_conn.executescript(SCHEMA)
@@ -219,7 +218,7 @@ class GcpUpdaterModule(object):
         
         def _call_later():
             logger.debug("[GCP][UPDATER] GcpUpdaterModule running call later.")
-            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop).addErrback(_error)
+            threads.deferToThreadPool(self.reactor, self._gcp_storage_pool, _loop, self.cache_directory).addErrback(_error)
             self.reactor.callLater(self.config["sleep_secs"], _call_later)
             
         _call_later()
